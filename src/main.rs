@@ -22,6 +22,19 @@ enum Opt {
     /// Show a list of possible KEY_XXX values
     ListKeys,
 
+    /// Listen to events and print them out to facilitate learning
+    /// which keys/buttons have which labels for your device(s)
+    DebugEvents {
+        /// Specify the device name of interest
+        #[arg(long)]
+        device_name: String,
+
+        /// Specify the phys device in case multiple devices have
+        /// the same name
+        #[arg(long)]
+        phys: Option<String>,
+    },
+
     /// Load a remapper config and run the remapper.
     /// This usually requires running as root to obtain exclusive access
     /// to the input devices.
@@ -107,6 +120,30 @@ fn get_device(
     }
 }
 
+fn debug_events(device: DeviceInfo) -> Result<()> {
+    let f =
+        std::fs::File::open(&device.path).context(format!("opening {}", device.path.display()))?;
+    let input = evdev_rs::Device::new_from_file(f).with_context(|| {
+        format!(
+            "failed to create new Device from file {}",
+            device.path.display()
+        )
+    })?;
+
+    loop {
+        let (status, event) =
+            input.next_event(evdev_rs::ReadFlag::NORMAL | evdev_rs::ReadFlag::BLOCKING)?;
+        match status {
+            evdev_rs::ReadStatus::Success => {
+                if let EventCode::EV_KEY(key) = event.event_code {
+                    log::info!("{key:?} {}", event.value);
+                }
+            }
+            evdev_rs::ReadStatus::Sync => anyhow::bail!("ReadStatus::Sync!"),
+        }
+    }
+}
+
 fn main() -> Result<()> {
     setup_logger();
     let opt = Opt::parse();
@@ -114,6 +151,10 @@ fn main() -> Result<()> {
     match opt {
         Opt::ListDevices => deviceinfo::list_devices(),
         Opt::ListKeys => list_keys(),
+        Opt::DebugEvents { device_name, phys } => {
+            let device_info = get_device(&device_name, phys.as_deref(), false)?;
+            debug_events(device_info)
+        }
         Opt::Remap {
             config_file,
             delay,
@@ -144,11 +185,8 @@ fn main() -> Result<()> {
             log::warn!("Short delay: release any keys now!");
             std::thread::sleep(Duration::from_secs_f64(delay));
 
-            let device_info = get_device(
-                device_name,
-                mapping_config.phys.as_deref(),
-                wait_for_device,
-            )?;
+            let device_info =
+                get_device(device_name, mapping_config.phys.as_deref(), wait_for_device)?;
 
             let mut mapper = InputMapper::create_mapper(device_info.path, mapping_config.mappings)?;
             mapper.run_mapper()
