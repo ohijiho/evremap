@@ -55,12 +55,10 @@ pub fn list_keys() -> Result<()> {
 }
 
 fn setup_logger() {
-    let mut builder = pretty_env_logger::formatted_timed_builder();
-    if let Ok(s) = std::env::var("EVREMAP_LOG") {
-        builder.parse_filters(&s);
-    } else {
-        builder.filter(None, log::LevelFilter::Info);
-    }
+    let mut builder = env_logger::Builder::new();
+    builder.filter_level(log::LevelFilter::Info);
+    let env = env_logger::Env::new().filter("EVREMAP_LOG").write_style("EVREMAP_LOG_STYLE");
+    builder.parse_env(env);
     builder.init();
 }
 
