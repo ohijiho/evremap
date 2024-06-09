@@ -1,3 +1,4 @@
+use crate::deviceinfo::DeviceInfo;
 use crate::mapping::*;
 use crate::remapper::*;
 use anyhow::{Context, Result};
@@ -40,6 +41,14 @@ enum Opt {
         /// Override the phys device specified by the config file
         #[arg(long)]
         phys: Option<String>,
+
+        /// If the device isn't found on startup, wait forever
+        /// until the device is plugged in. This works by polling
+        /// the set of devices every few seconds. It is not as
+        /// efficient as setting up a udev rule to spawn evremap,
+        /// but is simpler to setup ad-hoc.
+        #[arg(long)]
+        wait_for_device: bool,
     },
 }
 
@@ -68,6 +77,36 @@ fn setup_logger() {
     builder.init();
 }
 
+fn get_device(
+    device_name: &str,
+    phys: Option<&str>,
+    wait_for_device: bool,
+) -> anyhow::Result<DeviceInfo> {
+    match deviceinfo::DeviceInfo::with_name(device_name, phys) {
+        Ok(dev) => return Ok(dev),
+        Err(err) if !wait_for_device => return Err(err),
+        Err(err) => {
+            log::warn!("{err:#}. Will wait until it is attached.");
+        }
+    }
+
+    const MAX_SLEEP: Duration = Duration::from_secs(10);
+    const ONE_SECOND: Duration = Duration::from_secs(1);
+    let mut sleep = ONE_SECOND;
+
+    loop {
+        std::thread::sleep(sleep);
+        sleep = (sleep + ONE_SECOND).min(MAX_SLEEP);
+
+        match deviceinfo::DeviceInfo::with_name(device_name, phys) {
+            Ok(dev) => return Ok(dev),
+            Err(err) => {
+                log::debug!("{err:#}");
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
     setup_logger();
     let opt = Opt::parse();
@@ -80,6 +119,7 @@ fn main() -> Result<()> {
             delay,
             device_name,
             phys,
+            wait_for_device,
         } => {
             let mut mapping_config = MappingConfig::from_file(&config_file).context(format!(
                 "loading MappingConfig from {}",
@@ -104,8 +144,11 @@ fn main() -> Result<()> {
             log::warn!("Short delay: release any keys now!");
             std::thread::sleep(Duration::from_secs_f64(delay));
 
-            let device_info =
-                deviceinfo::DeviceInfo::with_name(device_name, mapping_config.phys.as_deref())?;
+            let device_info = get_device(
+                device_name,
+                mapping_config.phys.as_deref(),
+                wait_for_device,
+            )?;
 
             let mut mapper = InputMapper::create_mapper(device_info.path, mapping_config.mappings)?;
             mapper.run_mapper()
