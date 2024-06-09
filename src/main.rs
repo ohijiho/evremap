@@ -32,6 +32,14 @@ enum Opt {
         /// Number of seconds for user to release keys on startup
         #[arg(short, long, default_value = "2")]
         delay: f64,
+
+        /// Override the device name specified by the config file
+        #[arg(long)]
+        device_name: Option<String>,
+
+        /// Override the phys device specified by the config file
+        #[arg(long)]
+        phys: Option<String>,
     },
 }
 
@@ -67,19 +75,37 @@ fn main() -> Result<()> {
     match opt {
         Opt::ListDevices => deviceinfo::list_devices(),
         Opt::ListKeys => list_keys(),
-        Opt::Remap { config_file, delay } => {
-            let mapping_config = MappingConfig::from_file(&config_file).context(format!(
+        Opt::Remap {
+            config_file,
+            delay,
+            device_name,
+            phys,
+        } => {
+            let mut mapping_config = MappingConfig::from_file(&config_file).context(format!(
                 "loading MappingConfig from {}",
                 config_file.display()
             ))?;
 
+            if let Some(device) = device_name {
+                mapping_config.device_name = Some(device);
+            }
+            if let Some(phys) = phys {
+                mapping_config.phys = Some(phys);
+            }
+
+            let device_name = mapping_config.device_name.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "device_name is missing; \
+                        specify it either in the config file or via the --device-name \
+                        command line option"
+                )
+            })?;
+
             log::warn!("Short delay: release any keys now!");
             std::thread::sleep(Duration::from_secs_f64(delay));
 
-            let device_info = deviceinfo::DeviceInfo::with_name(
-                &mapping_config.device_name,
-                mapping_config.phys.as_deref(),
-            )?;
+            let device_info =
+                deviceinfo::DeviceInfo::with_name(device_name, mapping_config.phys.as_deref())?;
 
             let mut mapper = InputMapper::create_mapper(device_info.path, mapping_config.mappings)?;
             mapper.run_mapper()
