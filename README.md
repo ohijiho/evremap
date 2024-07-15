@@ -21,73 +21,34 @@ is effective system-wide: in Wayland, X11 and the linux console.
 
 ## Configuration
 
-Here's an example configuration that makes capslock useful:
+Here's an example configuration that enables MacOS-like meta key.
 
 ```toml
 # The name of the device to remap.
 # Run `sudo evremap list-devices` to see the devices available
 # on your system.
-device_name = "AT Translated Set 2 keyboard"
+device_name = "PFU Limited HHKB-Hybrid"
 
 # If you have multiple devices with the same name, you can optionally
 # specify the `phys` value that is printed by the `list-devices` subcommand
 # phys = "usb-0000:07:00.3-2.1.1/input0"
 
-# Configure CAPSLOCK as a Dual Role key.
-# Holding it produces LEFTCTRL, but tapping it
-# will produce ESC.
-# Both `tap` and `hold` can expand to multiple output keys.
-[[dual_role]]
-input = "KEY_CAPSLOCK"
-hold = ["KEY_LEFTCTRL"]
-tap = ["KEY_ESC"]
+[[remap]]
+cond = []
+except = []
+when = ["KEY_LEFTMETA"]
+[remap.mappings]
+KEY_LEFTMETA = ["KEY_LEFTCTRL"]
+
+[[remap]]
+cond = []
+except = []
+when = ["KEY_TAB", "KEY_GRAVE"]
+[remap.mappings]
+KEY_LEFTMETA = ["KEY_LEFTMETA"]
 ```
 
-You can also express simple remapping entries:
-
-```toml
-# This config snippet is useful if your keyboard has an arrow
-# cluster, but doesn't have page up, page down, home or end
-# keys.  Here we're configuring ALT+arrow to map to those functions.
-[[remap]]
-input = ["KEY_LEFTALT", "KEY_UP"]
-output = ["KEY_PAGEUP"]
-
-[[remap]]
-input = ["KEY_LEFTALT", "KEY_DOWN"]
-output = ["KEY_PAGEDOWN"]
-
-[[remap]]
-input = ["KEY_LEFTALT", "KEY_LEFT"]
-output = ["KEY_HOME"]
-
-[[remap]]
-input = ["KEY_LEFTALT", "KEY_RIGHT"]
-output = ["KEY_END"]
-```
-
-When applying remapping configuration, ordering is important:
-
-* Dual Role entries are always processed first
-* Remap entries are applied in the order that they appear in
-  your configuration file
-
-Here's an example where ordering is important: on the PixelBook Go keyboard,
-the function key row has alternate functions on the keycaps.  It is natural
-to want the mute button to mute by default, but to emit the F8 key when
-holding alt.  We can express that with the following configuration:
-
-```toml
-[[remap]]
-input = ["KEY_LEFTALT", "KEY_F8"]
-# When our `input` is matched, our list of `output` is prevented from
-# matching as the `input` of subsequent rules.
-output = ["KEY_F8"]
-
-[[remap]]
-input = ["KEY_F8"]
-output = ["KEY_MUTE"]
-```
+Python script can be useful for generating complex configuration files. An example can be found here: `scripts/example1.py`.
 
 * How do I list available input devices?
   `sudo evremap list-devices`
