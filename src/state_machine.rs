@@ -41,21 +41,25 @@ pub struct StateMachine {
     output_state: HashMap<KeyCode, HashSet<KeyCode>>,
 }
 
+#[derive(Debug)]
 struct CondBits {
     buf: Box<[u8]>,
     unsatisfied: usize,
 }
 
+#[derive(Clone, Debug)]
 struct CondBitRef {
     cb: Rc<RefCell<CondBits>>,
     i: usize,
 }
 
+#[derive(Debug)]
 struct RemapRule {
     cond_bits: Rc<RefCell<CondBits>>,
     mappings: Box<[(KeyCode, Box<[KeyCode]>)]>,
 }
 
+#[derive(Debug)]
 struct KeyEntry {
     cond_set: Vec<CondBitRef>,
     cond_unset: Vec<CondBitRef>,
@@ -204,14 +208,14 @@ impl StateMachine {
             KeyEventType::Press => {
                 if let Some(e) = self.key_map.get(&code) {
                     for c in &e.cond_set {
-                        c.set(true);
+                        c.set(false);
                     }
                 }
             }
             KeyEventType::Release => {
                 if let Some(e) = self.key_map.get(&code) {
                     for c in &e.cond_unset {
-                        c.set(false);
+                        c.set(true);
                     }
                 }
             }
@@ -317,6 +321,8 @@ impl StateMachine {
                         release.push(code);
                     }
                     press.push((code, dst.iter().map(Clone::clone).collect()));
+                } else {
+                    press.push((code, vec![code]));
                 }
 
                 (release, press)
@@ -386,4 +392,102 @@ fn make_sync_event(time: &TimeVal) -> InputEvent {
 
 fn make_event(key: KeyCode, time: &TimeVal, event_type: KeyEventType) -> InputEvent {
     InputEvent::new(time, &EventCode::EV_KEY(key), event_type.value())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use KeyCode::*;
+    use KeyEventType::*;
+
+    fn ke(key: KeyCode, sec: i64, event_type: KeyEventType) -> InputEvent {
+        make_event(key, &TimeVal::new(sec, 0), event_type)
+    }
+
+    fn se(sec: i64) -> InputEvent {
+        make_sync_event(&TimeVal::new(sec, 0))
+    }
+
+    fn remap(
+        cond: Vec<KeyCode>,
+        except: Vec<KeyCode>,
+        when: Vec<KeyCode>,
+        mappings: Vec<(KeyCode, Vec<KeyCode>)>,
+    ) -> Mapping {
+        Mapping::Remap {
+            cond: cond.into_iter().collect(),
+            except: except.into_iter().collect(),
+            when: when.into_iter().collect(),
+            mappings: mappings
+                .into_iter()
+                .map(|(k, v)| (k, v.into_boxed_slice()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_tbl() {
+        let mut builder = pretty_env_logger::formatted_timed_builder();
+        if let Ok(s) = std::env::var("EVREMAP_LOG") {
+            builder.parse_filters(&s);
+        } else {
+            builder.filter(None, log::LevelFilter::Info);
+        }
+        builder.init();
+        log::info!("info logsaoisejroaiej");
+
+        let tcs: Vec<(_, _, Vec<(InputEvent, Vec<InputEvent>)>)> = vec![
+            (
+                "case 1",
+                vec![],
+                vec![
+                    (ke(KEY_1, 10, Press), vec![ke(KEY_1, 10, Press), se(10)]),
+                    (ke(KEY_1, 10, Release), vec![ke(KEY_1, 10, Release), se(10)]),
+                ],
+            ),
+            (
+                "case 2",
+                vec![
+                    remap(
+                        vec![],
+                        vec![],
+                        vec![KEY_LEFTMETA],
+                        vec![(KEY_LEFTMETA, vec![])],
+                    ),
+                    remap(
+                        vec![KEY_LEFTMETA],
+                        vec![],
+                        vec![KEY_C, KEY_V],
+                        vec![(KEY_LEFTMETA, vec![KEY_LEFTCTRL])],
+                    ),
+                    remap(
+                        vec![KEY_LEFTMETA],
+                        vec![],
+                        vec![KEY_TAB, KEY_GRAVE],
+                        vec![(KEY_LEFTMETA, vec![KEY_LEFTMETA])],
+                    ),
+                ],
+                vec![
+                    (ke(KEY_LEFTMETA, 10, Press), vec![se(10)]),
+                    (
+                        ke(KEY_C, 11, Press),
+                        vec![ke(KEY_LEFTCTRL, 11, Press), ke(KEY_C, 11, Press), se(11)],
+                    ),
+                    (ke(KEY_C, 12, Release), vec![ke(KEY_C, 12, Release), se(12)]),
+                    (
+                        ke(KEY_LEFTMETA, 13, Release),
+                        vec![ke(KEY_LEFTCTRL, 13, Release), se(13)],
+                    ),
+                ],
+            ),
+        ];
+        for (name, mappings, calls) in tcs {
+            log::trace!("test case {name} begin");
+            let mut sm = StateMachine::new(&mappings);
+            for (input, output) in calls {
+                assert_eq!((name, &input, sm.send(&input)), (name, &input, output));
+            }
+            log::trace!("test case {name} end");
+        }
+    }
 }
