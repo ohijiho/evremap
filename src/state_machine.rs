@@ -39,12 +39,18 @@ pub struct StateMachine {
 
     input_state: HashMap<KeyCode, HashSet<KeyCode>>,
     output_state: HashMap<KeyCode, HashSet<KeyCode>>,
+
+    _remap_rules: Vec<Rc<RemapRule>>,
+    _cond_bits: Vec<Rc<RefCell<CondBits>>>,
 }
 
 #[derive(Debug)]
 struct CondBits {
     buf: Box<[u8]>,
     unsatisfied: usize,
+
+    _cond: Vec<KeyCode>,
+    _except: Vec<KeyCode>,
 }
 
 #[derive(Clone, Debug)]
@@ -78,6 +84,17 @@ impl CondBits {
         Self {
             buf: buf.into(),
             unsatisfied,
+            _cond: vec![],
+            _except: vec![],
+        }
+    }
+
+    fn with_metadata(self, cond: Vec<KeyCode>, except: Vec<KeyCode>) -> Self {
+        Self {
+            buf: self.buf,
+            unsatisfied: self.unsatisfied,
+            _cond: cond,
+            _except: except,
         }
     }
 
@@ -97,6 +114,7 @@ impl CondBits {
         }
     }
 }
+
 impl CondBitRef {
     fn set(&self, value: bool) {
         self.cb.borrow_mut().set(self.i, value);
@@ -133,7 +151,11 @@ impl StateMachine {
 
         let cond_bits: Vec<_> = cond_vec
             .iter()
-            .map(|(a, b)| Rc::from(RefCell::new(CondBits::new(a.len(), a.len() + b.len()))))
+            .map(|(a, b)| {
+                Rc::from(RefCell::new(
+                    CondBits::new(a.len(), a.len() + b.len()).with_metadata(a.clone(), b.clone()),
+                ))
+            })
             .collect();
         let cond_tbl: HashMap<_, _> = cond_vec
             .into_iter()
@@ -188,6 +210,8 @@ impl StateMachine {
             key_map,
             input_state: HashMap::new(),
             output_state: HashMap::new(),
+            _remap_rules: remap_rules.into_vec(),
+            _cond_bits: cond_bits,
         }
     }
 
@@ -205,17 +229,18 @@ impl StateMachine {
         let event_type = KeyEventType::from_value(event.value);
 
         match event_type {
-            KeyEventType::Press => {
+            KeyEventType::Press | KeyEventType::Release => {
+                let release = match event_type {
+                    KeyEventType::Press => false,
+                    KeyEventType::Release => true,
+                    _ => unreachable!(),
+                };
                 if let Some(e) = self.key_map.get(&code) {
                     for c in &e.cond_set {
-                        c.set(false);
+                        c.set(release);
                     }
-                }
-            }
-            KeyEventType::Release => {
-                if let Some(e) = self.key_map.get(&code) {
                     for c in &e.cond_unset {
-                        c.set(true);
+                        c.set(!release);
                     }
                 }
             }
@@ -240,6 +265,10 @@ impl StateMachine {
                         .map(|(k, v)| (*k, v.as_slice()))
                         .collect::<Vec<_>>(),
                 );
+
+                log::trace!("input_keys: {:?}", self.input_state.keys());
+                log::trace!("output_keys: {:?}", self.output_state.keys());
+                log::trace!("cond_bits: {:?}", self._cond_bits);
 
                 release
                     .into_iter()
@@ -431,14 +460,14 @@ mod tests {
 
     #[test]
     fn test_tbl() {
-        let mut builder = pretty_env_logger::formatted_timed_builder();
-        if let Ok(s) = std::env::var("EVREMAP_LOG") {
-            builder.parse_filters(&s);
-        } else {
-            builder.filter(None, log::LevelFilter::Info);
-        }
-        builder.init();
-        log::info!("info logsaoisejroaiej");
+        // let mut builder = pretty_env_logger::formatted_timed_builder();
+        // if let Ok(s) = std::env::var("EVREMAP_LOG") {
+        //     builder.parse_filters(&s);
+        // } else {
+        //     builder.filter(None, log::LevelFilter::Info);
+        // }
+        // builder.init();
+        // log::info!("info logsaoisejroaiej");
 
         let tcs: Vec<(_, _, Vec<(InputEvent, Vec<InputEvent>)>)> = vec![
             (
@@ -518,6 +547,99 @@ mod tests {
                     (
                         ke(KEY_TAB, 35, Release),
                         vec![ke(KEY_TAB, 35, Release), se(35)],
+                    ),
+                ],
+            ),
+            (
+                "case 3",
+                vec![
+                    remap(
+                        vec![],
+                        vec![],
+                        vec![KEY_LEFTMETA],
+                        vec![(KEY_LEFTMETA, vec![])],
+                    ),
+                    remap(
+                        vec![KEY_LEFTMETA],
+                        vec![KEY_LEFTALT],
+                        vec![KEY_LEFT],
+                        vec![(KEY_LEFTMETA, vec![]), (KEY_LEFT, vec![KEY_HOME])],
+                    ),
+                    remap(
+                        vec![KEY_LEFTMETA],
+                        vec![KEY_LEFTALT],
+                        vec![KEY_RIGHT],
+                        vec![(KEY_LEFTMETA, vec![]), (KEY_RIGHT, vec![KEY_END])],
+                    ),
+                    remap(
+                        vec![KEY_LEFTMETA],
+                        vec![],
+                        vec![KEY_C, KEY_V],
+                        vec![(KEY_LEFTMETA, vec![KEY_LEFTCTRL])],
+                    ),
+                    remap(
+                        vec![],
+                        vec![],
+                        vec![KEY_LEFTALT],
+                        vec![(KEY_LEFTALT, vec![])],
+                    ),
+                    remap(
+                        vec![KEY_LEFTALT],
+                        vec![KEY_LEFTMETA],
+                        vec![KEY_LEFT, KEY_RIGHT],
+                        vec![(KEY_LEFTALT, vec![KEY_LEFTCTRL])],
+                    ),
+                ],
+                vec![
+                    (ke(KEY_LEFTMETA, 0, Press), vec![se(0)]),
+                    (ke(KEY_LEFTMETA, 0, Release), vec![se(0)]),
+                    (ke(KEY_LEFTALT, 0, Press), vec![se(0)]),
+                    (ke(KEY_LEFTALT, 0, Release), vec![se(0)]),
+                    (ke(KEY_LEFTMETA, 0, Press), vec![se(0)]),
+                    (ke(KEY_LEFT, 0, Press), vec![ke(KEY_HOME, 0, Press), se(0)]),
+                    (
+                        ke(KEY_LEFT, 0, Release),
+                        vec![ke(KEY_HOME, 0, Release), se(0)],
+                    ),
+                    (
+                        ke(KEY_LEFTSHIFT, 0, Press),
+                        vec![ke(KEY_LEFTSHIFT, 0, Press), se(0)],
+                    ),
+                    (ke(KEY_RIGHT, 0, Press), vec![ke(KEY_END, 0, Press), se(0)]),
+                    (
+                        ke(KEY_RIGHT, 0, Release),
+                        vec![ke(KEY_END, 0, Release), se(0)],
+                    ),
+                    (
+                        ke(KEY_LEFTSHIFT, 0, Release),
+                        vec![ke(KEY_LEFTSHIFT, 0, Release), se(0)],
+                    ),
+                    (
+                        ke(KEY_C, 0, Press),
+                        vec![ke(KEY_LEFTCTRL, 0, Press), ke(KEY_C, 0, Press), se(0)],
+                    ),
+                    (ke(KEY_C, 0, Release), vec![ke(KEY_C, 0, Release), se(0)]),
+                    (
+                        ke(KEY_LEFT, 0, Press),
+                        vec![ke(KEY_LEFTCTRL, 0, Release), ke(KEY_HOME, 0, Press), se(0)],
+                    ),
+                    (
+                        ke(KEY_LEFT, 0, Release),
+                        vec![ke(KEY_HOME, 0, Release), se(0)],
+                    ),
+                    (ke(KEY_LEFTMETA, 0, Release), vec![se(0)]),
+                    (ke(KEY_LEFTALT, 0, Press), vec![se(0)]),
+                    (
+                        ke(KEY_RIGHT, 0, Press),
+                        vec![ke(KEY_LEFTCTRL, 0, Press), ke(KEY_RIGHT, 0, Press), se(0)],
+                    ),
+                    (
+                        ke(KEY_RIGHT, 0, Release),
+                        vec![ke(KEY_RIGHT, 0, Release), se(0)],
+                    ),
+                    (
+                        ke(KEY_LEFTALT, 0, Release),
+                        vec![ke(KEY_LEFTCTRL, 0, Release), se(0)],
                     ),
                 ],
             ),
