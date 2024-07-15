@@ -1,8 +1,10 @@
 use anyhow::Context;
 pub use evdev_rs::enums::{EventCode, EventType, EV_KEY as KeyCode};
 use serde::Deserialize;
-use std::collections::HashSet;
-use std::path::Path;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -20,11 +22,8 @@ impl MappingConfig {
         let config_file: ConfigFile =
             toml::from_str(&toml_data).context(format!("parsing toml from {}", path.display()))?;
         let mut mappings = vec![];
-        for dual in config_file.dual_role {
-            mappings.push(dual.into());
-        }
-        for remap in config_file.remap {
-            mappings.push(remap.into());
+        for x in config_file.remap {
+            mappings.push(x.into());
         }
         Ok(Self {
             device_name: config_file.device_name,
@@ -36,18 +35,20 @@ impl MappingConfig {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Mapping {
-    DualRole {
-        input: KeyCode,
-        hold: Vec<KeyCode>,
-        tap: Vec<KeyCode>,
-    },
     Remap {
-        input: HashSet<KeyCode>,
-        output: HashSet<KeyCode>,
+        // these keys must be hold
+        cond: HashSet<KeyCode>,
+        // these keys must not be hold
+        except: HashSet<KeyCode>,
+        // this rule is triggered when one of these keys are pressed
+        when: HashSet<KeyCode>,
+        // .0 is remapped into .1 when active.
+        // Deactivated when either a conflicting remapping is activated or .0 is released.
+        mappings: Box<[(KeyCode, Box<[KeyCode]>)]>,
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Hash)]
 #[serde(try_from = "String")]
 struct KeyCodeWrapper {
     pub code: KeyCode,
@@ -81,33 +82,24 @@ impl std::convert::TryFrom<String> for KeyCodeWrapper {
 }
 
 #[derive(Debug, Deserialize)]
-struct DualRoleConfig {
-    input: KeyCodeWrapper,
-    hold: Vec<KeyCodeWrapper>,
-    tap: Vec<KeyCodeWrapper>,
-}
-
-impl Into<Mapping> for DualRoleConfig {
-    fn into(self) -> Mapping {
-        Mapping::DualRole {
-            input: self.input.into(),
-            hold: self.hold.into_iter().map(Into::into).collect(),
-            tap: self.tap.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
 struct RemapConfig {
-    input: Vec<KeyCodeWrapper>,
-    output: Vec<KeyCodeWrapper>,
+    cond: Vec<KeyCodeWrapper>,
+    except: Vec<KeyCodeWrapper>,
+    when: Vec<KeyCodeWrapper>,
+    mappings: HashMap<KeyCodeWrapper, Vec<KeyCodeWrapper>>,
 }
 
 impl Into<Mapping> for RemapConfig {
     fn into(self) -> Mapping {
         Mapping::Remap {
-            input: self.input.into_iter().map(Into::into).collect(),
-            output: self.output.into_iter().map(Into::into).collect(),
+            cond: self.cond.into_iter().map(Into::into).collect(),
+            except: self.except.into_iter().map(Into::into).collect(),
+            when: self.when.into_iter().map(Into::into).collect(),
+            mappings: self
+                .mappings
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into_iter().map(Into::into).collect()))
+                .collect(),
         }
     }
 }
@@ -117,9 +109,6 @@ struct ConfigFile {
     device_name: String,
     #[serde(default)]
     phys: Option<String>,
-
-    #[serde(default)]
-    dual_role: Vec<DualRoleConfig>,
 
     #[serde(default)]
     remap: Vec<RemapConfig>,

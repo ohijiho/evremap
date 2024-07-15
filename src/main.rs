@@ -1,21 +1,19 @@
 use crate::mapping::*;
 use crate::remapper::*;
 use anyhow::{Context, Result};
+use clap::Parser;
 use std::path::PathBuf;
 use std::time::Duration;
-use clap::Parser;
 
 mod deviceinfo;
 mod mapping;
 mod remapper;
+mod state_machine;
+mod util;
 
 /// Remap libinput evdev keyboard inputs
 #[derive(Debug, Parser)]
-#[command(
-    name = "evremap",
-    about,
-    author = "Wez Furlong"
-)]
+#[command(name = "evremap", about, author = "Wez Furlong")]
 enum Opt {
     /// Rather than running the remapper, list currently available devices.
     /// This is helpful to check their names when setting up the initial
@@ -85,7 +83,8 @@ fn main() -> Result<()> {
                 mapping_config.phys.as_deref(),
             )?;
 
-            let mut mapper = InputMapper::create_mapper(device_info.path, mapping_config.mappings)?;
+            let mut mapper =
+                InputMapper::create_mapper(device_info.path, &mapping_config.mappings)?;
             mapper.run_mapper()
         }
     }
