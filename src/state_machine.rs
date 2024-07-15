@@ -371,13 +371,17 @@ impl StateMachine {
             }
         }
 
-        let pressed_set: HashSet<_> = pressed.iter().collect();
+        let released_set: HashSet<_> = released.iter().map(Clone::clone).collect();
+        let pressed_set: HashSet<_> = pressed.iter().map(Clone::clone).collect();
         (
             released
                 .into_iter()
                 .filter(|x| !pressed_set.contains(x))
                 .collect(),
-            pressed,
+            pressed
+                .into_iter()
+                .filter(|x| !released_set.contains(x))
+                .collect(),
         )
     }
 }
@@ -477,6 +481,43 @@ mod tests {
                     (
                         ke(KEY_LEFTMETA, 13, Release),
                         vec![ke(KEY_LEFTCTRL, 13, Release), se(13)],
+                    ),
+                    (ke(KEY_LEFTMETA, 20, Press), vec![se(20)]),
+                    (
+                        ke(KEY_TAB, 21, Press),
+                        vec![ke(KEY_LEFTMETA, 21, Press), ke(KEY_TAB, 21, Press), se(21)],
+                    ),
+                    (
+                        ke(KEY_TAB, 22, Release),
+                        vec![ke(KEY_TAB, 22, Release), se(22)],
+                    ),
+                    (ke(KEY_TAB, 23, Press), vec![ke(KEY_TAB, 23, Press), se(23)]),
+                    (
+                        ke(KEY_TAB, 24, Release),
+                        vec![ke(KEY_TAB, 24, Release), se(24)],
+                    ),
+                    (
+                        ke(KEY_V, 25, Press),
+                        vec![
+                            ke(KEY_LEFTMETA, 25, Release),
+                            ke(KEY_LEFTCTRL, 25, Press),
+                            ke(KEY_V, 25, Press),
+                            se(25),
+                        ],
+                    ),
+                    (ke(KEY_V, 26, Release), vec![ke(KEY_V, 26, Release), se(26)]),
+                    (
+                        ke(KEY_LEFTMETA, 27, Release),
+                        vec![ke(KEY_LEFTCTRL, 27, Release), se(27)],
+                    ),
+                    (ke(KEY_C, 30, Press), vec![ke(KEY_C, 30, Press), se(30)]),
+                    (ke(KEY_V, 31, Press), vec![ke(KEY_V, 31, Press), se(31)]),
+                    (ke(KEY_TAB, 32, Press), vec![ke(KEY_TAB, 32, Press), se(32)]),
+                    (ke(KEY_C, 33, Release), vec![ke(KEY_C, 33, Release), se(33)]),
+                    (ke(KEY_V, 34, Release), vec![ke(KEY_V, 34, Release), se(34)]),
+                    (
+                        ke(KEY_TAB, 35, Release),
+                        vec![ke(KEY_TAB, 35, Release), se(35)],
                     ),
                 ],
             ),
